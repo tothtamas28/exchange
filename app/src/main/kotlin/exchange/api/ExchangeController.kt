@@ -6,6 +6,7 @@ import exchange.model.OrderType
 import exchange.security.ExchangeUserDetails
 import exchange.security.TokenManager
 import exchange.service.ExchangeService
+import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.*
@@ -20,17 +21,19 @@ class ExchangeController(
     val exchangeService: ExchangeService,
     val tokenManager: TokenManager
 ) {
+    private val logger = LoggerFactory.getLogger(this.javaClass)
+
     data class RegisterRequest(val username: String)
 
     @PostMapping(path = ["/register"], consumes = ["application/json"])
     fun register(@RequestBody request : RegisterRequest) : RegisterResponse {
+        logger.info("POST /register $request")
+
         // Authentication skipped in example, would be performed here
         // val userDetails = userDetailsService.loadUserByUsername(request.username)
 
         val user = exchangeService.ensureUserWithBalanceExists(request.username)
         val jwtToken = tokenManager.generateJwtToken(user)
-
-        println("request: $request")
         return RegisterResponse(jwtToken)
     }
 
@@ -44,10 +47,7 @@ class ExchangeController(
         @AuthenticationPrincipal userDetails : ExchangeUserDetails,
         @RequestBody request : BalanceRequest
     ) : PostBalanceResponse {
-        data class Response(val success : Boolean)
-
-        println("User: ${userDetails.username}, Request: $request")
-
+        logger.info("POST /balance ${userDetails.username} $request")
         return try {
             exchangeService.deposit(userDetails.user, request.topup_amount, request.currency)
             PostBalanceResponse(true)
@@ -60,8 +60,7 @@ class ExchangeController(
     fun getBalance(
         @AuthenticationPrincipal userDetails : ExchangeUserDetails
     ) : ResponseEntity<GetBalanceResponse> {
-        val username = userDetails.username
-        println("User: ${username}, Request: GET /balance")
+        logger.info("GET /balance ${userDetails.username}")
         val balance = exchangeService.getBalanceOfUser(userDetails.user) ?: return ResponseEntity.notFound().build()
         val rate = if (balance.usd > 0) {
             try {
@@ -85,7 +84,7 @@ class ExchangeController(
         @AuthenticationPrincipal userDetails : ExchangeUserDetails,
         @RequestBody request : MarketOrderRequest,
     ) : ResponseEntity<PostMarketOrderResponse> {
-        println("User: ${userDetails.username}, Request: $request")
+        logger.info("POST /market_order ${userDetails.username} $request")
         val orderResult = exchangeService.executeMarketOrder(userDetails.user, request.quantity, request.type)
         return orderResult?.let {
             it.updatedOrders.forEach {
@@ -107,7 +106,7 @@ class ExchangeController(
         @AuthenticationPrincipal userDetails : ExchangeUserDetails,
         @RequestBody request : StandingOrderRequest
     ) : ResponseEntity<PostStandingOrderResponse> {
-        println("User: ${userDetails.username}, Request: $request")
+        logger.info("POST /standing_order ${userDetails.username} $request")
         val standingOrderResult = exchangeService.createStandingOrder(
             userDetails.user,
             request.quantity,
@@ -128,6 +127,7 @@ class ExchangeController(
         @AuthenticationPrincipal userDetails : ExchangeUserDetails,
         @PathVariable(name ="id") id : Long,
     ) : ResponseEntity<Any> {
+        logger.info("DELETE /standing_order/$id ${userDetails.username}")
         val success = exchangeService.removeOrderOfUserById(userDetails.user, id)
         return if (success) {
             ResponseEntity.ok().build()
@@ -141,6 +141,7 @@ class ExchangeController(
         @AuthenticationPrincipal userDetails : ExchangeUserDetails,
         @PathVariable(name ="id") id : Long,
     ) : ResponseEntity<GetStandingOrderResponse> {
+        logger.info("GET /standing_order/$id ${userDetails.username}")
         return exchangeService.findOrderOfUserById(userDetails.user, id)?.let {
             ResponseEntity.ok(GetStandingOrderResponse(
                 it.type,
@@ -158,10 +159,10 @@ class ExchangeController(
         client.get().uri { builder : UriBuilder ->
             builder.path(url.host).build()
         }.retrieve().toBodilessEntity().onErrorResume {
-            println("Webhook call to URL $url failed: ${it.message}")
+            logger.info("Webhook $url failed: ${it.message}")
             Mono.justOrEmpty(null)
         }.subscribe {
-            println("Webhook call to URL $url copleted with status ${it.statusCode}")
+            logger.info("Webhook $url copleted: status ${it.statusCode}")
         }
     }
 }

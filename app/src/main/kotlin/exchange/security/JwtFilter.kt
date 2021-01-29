@@ -1,5 +1,6 @@
 package exchange.security
 
+import org.slf4j.LoggerFactory
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.core.userdetails.UserDetails
@@ -15,6 +16,7 @@ class JwtFilter(
     val tokenManager: TokenManager,
     val userDetailsService: ExchangeUserDetailsService
 ) : OncePerRequestFilter() {
+    private val logger = LoggerFactory.getLogger(this.javaClass)
 
     // TODO add token expiration
     override fun doFilterInternal(
@@ -27,12 +29,12 @@ class JwtFilter(
             val token = tokenHeader.substring(7)
             val username = tokenManager.getUsernameFromToken(token)
             if (username == null) {
-                println("Unable to get JTW token")
+                logger.info("Unable to get username: $token")
             } else {
                 if (SecurityContextHolder.getContext().authentication == null) {
                     val userDetails = userDetailsService.loadUserByUsername(username)
                     if (userDetails == null) {
-                        println("User not found: $username")
+                        logger.info("User not found: $username")
                     } else {
                         if (tokenManager.validateJwtToken(token, userDetails)) {
                             val authenticationToken =
@@ -40,7 +42,7 @@ class JwtFilter(
                             authenticationToken.details = WebAuthenticationDetailsSource().buildDetails(request)
                             SecurityContextHolder.getContext().authentication = authenticationToken
                         } else {
-                            println("Invalid token")
+                            logger.info("Invalid token: $username")
                         }
                     }
                 }
