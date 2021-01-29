@@ -103,20 +103,25 @@ class ExchangeService(
     }
 
     @Transactional
-    fun executeMarketOrder(user: User, quantity: Long, type: OrderType) : OrderResult {
+    fun executeMarketOrder(user: User, quantity: Long, type: OrderType) : OrderResult? {
         val balance = balanceRepository.findBalanceByOwner(user)
             ?: throw RuntimeException("Balance for user ${user.username} not found")
         val orders = when (type) {
             OrderType.BUY -> orderRepository.findSellers()
             OrderType.SELL -> orderRepository.findBuyers()
         }
-        return executeOrders(quantity, type, balance, orders)
+        return try {
+            executeOrders(quantity, type, balance, orders)
+        } catch (e : Exception) {
+            // Assertion failure -- reaching this branch indicates a bug
+            null
+        }
     }
 
     data class StandingOrderResult(val order : Order, val updatedOrders: List<Order>)
 
     @Transactional
-    fun createStandingOrder(user: User, quantity: Long, type: OrderType, limitPrice: Long, webhookURL: URL): StandingOrderResult {
+    fun createStandingOrder(user: User, quantity: Long, type: OrderType, limitPrice: Long, webhookURL: URL): StandingOrderResult? {
         val balance = balanceRepository.findBalanceByOwner(user)
             ?: throw RuntimeException("Balance for user ${user.username} not found")
 
@@ -138,17 +143,22 @@ class ExchangeService(
             OrderType.SELL -> orderRepository.findBuyersAtPrice(limitPrice)
         }
 
-        val orderResult = executeOrders(quantity, type, balance, orders)
-        val btc = orderResult.btc
-        val usd = orderResult.usd
-        val updatedOrders = orderResult.updatedOrders
-        val state = if (btc == quantity) {
-            OrderState.FULFILLED
-        } else {
-            OrderState.LIVE
+        return try {
+            val orderResult = executeOrders(quantity, type, balance, orders)
+            val btc = orderResult.btc
+            val usd = orderResult.usd
+            val updatedOrders = orderResult.updatedOrders
+            val state = if (btc == quantity) {
+                OrderState.FULFILLED
+            } else {
+                OrderState.LIVE
+            }
+            val order = Order(user, type, limitPrice, btc, quantity - btc, usd, state, webhookURL)
+            StandingOrderResult(orderRepository.save(order), updatedOrders)
+        } catch (e : Exception) {
+            // Assertion failure -- reaching this branch indicates a bug
+            null
         }
-        val order = Order(user, type, limitPrice, btc, quantity - btc, usd, state, webhookURL)
-        return StandingOrderResult(orderRepository.save(order), updatedOrders)
     }
 
     @Transactional

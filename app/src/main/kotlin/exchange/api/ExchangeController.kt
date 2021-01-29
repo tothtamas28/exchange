@@ -84,13 +84,15 @@ class ExchangeController(
     fun postMarketOrder(
         @AuthenticationPrincipal userDetails : ExchangeUserDetails,
         @RequestBody request : MarketOrderRequest,
-    ) : PostMarketOrderResponse {
-        val orderResult = exchangeService.executeMarketOrder(userDetails.user, request.quantity, request.type)
-        orderResult.updatedOrders.forEach {
-            callWebhook(it.webhookURL)
-        }
+    ) : ResponseEntity<PostMarketOrderResponse> {
         println("User: ${userDetails.username}, Request: $request")
-        return PostMarketOrderResponse(orderResult.btc, (orderResult.usd / orderResult.btc).toDouble())
+        val orderResult = exchangeService.executeMarketOrder(userDetails.user, request.quantity, request.type)
+        return orderResult?.let {
+            it.updatedOrders.forEach {
+                callWebhook(it.webhookURL)
+            }
+            ResponseEntity.ok(PostMarketOrderResponse(it.btc, (it.usd / it.btc).toDouble()))
+        } ?: ResponseEntity.status(500).build()
     }
 
     data class StandingOrderRequest(
@@ -104,9 +106,8 @@ class ExchangeController(
     fun postStandingOrder(
         @AuthenticationPrincipal userDetails : ExchangeUserDetails,
         @RequestBody request : StandingOrderRequest
-    ) : PostStandingOrderResponse {
+    ) : ResponseEntity<PostStandingOrderResponse> {
         println("User: ${userDetails.username}, Request: $request")
-
         val standingOrderResult = exchangeService.createStandingOrder(
             userDetails.user,
             request.quantity,
@@ -114,10 +115,12 @@ class ExchangeController(
             request.limit_price,
             request.webhook_url
         )
-        standingOrderResult.updatedOrders.forEach {
-            callWebhook(it.webhookURL)
-        }
-        return PostStandingOrderResponse(standingOrderResult.order.id)
+        return standingOrderResult?.let {
+            standingOrderResult.updatedOrders.forEach {
+                callWebhook(it.webhookURL)
+            }
+            ResponseEntity.ok(PostStandingOrderResponse(standingOrderResult.order.id))
+        } ?: ResponseEntity.status(500).build()
     }
 
     @DeleteMapping(path = ["/standing_order/{id}"])
