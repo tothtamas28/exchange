@@ -23,9 +23,7 @@ class ExchangeController(
     data class RegisterRequest(val username: String)
 
     @PostMapping(path = ["/register"], consumes = ["application/json"])
-    fun postRegister(@RequestBody request : RegisterRequest) : Any {
-        data class Response(val token : String)
-
+    fun register(@RequestBody request : RegisterRequest) : RegisterResponse {
         // Authentication skipped in example, would be performed here
         // val userDetails = userDetailsService.loadUserByUsername(request.username)
 
@@ -33,7 +31,7 @@ class ExchangeController(
         val jwtToken = tokenManager.generateJwtToken(user)
 
         println("request: $request")
-        return Response(jwtToken)
+        return RegisterResponse(jwtToken)
     }
 
     data class BalanceRequest(
@@ -45,28 +43,23 @@ class ExchangeController(
     fun postBalance(
         @AuthenticationPrincipal userDetails : ExchangeUserDetails,
         @RequestBody request : BalanceRequest
-    ) : Any {
+    ) : PostBalanceResponse {
         data class Response(val success : Boolean)
 
         println("User: ${userDetails.username}, Request: $request")
 
         return try {
             exchangeService.deposit(userDetails.user, request.topup_amount, request.currency)
-            Response(true)
+            PostBalanceResponse(true)
         } catch (e  :Exception) {
-            Response(false)
+            PostBalanceResponse(false)
         }
     }
 
     @GetMapping(path = ["/balance"])
     fun getBalance(
         @AuthenticationPrincipal userDetails : ExchangeUserDetails
-    ) : ResponseEntity<Any> {
-        data class Response(
-            val usd : Long,
-            val btc : Long,
-            val usd_equivalent : Long
-        )
+    ) : ResponseEntity<GetBalanceResponse> {
         val username = userDetails.username
         println("User: ${username}, Request: GET /balance")
         val balance = exchangeService.getBalanceOfUser(userDetails.user) ?: return ResponseEntity.notFound().build()
@@ -79,7 +72,7 @@ class ExchangeController(
         } else {
             .0
         }
-        return ResponseEntity.ok(Response(balance.usd, balance.btc, (balance.btc * rate).roundToLong()))
+        return ResponseEntity.ok(GetBalanceResponse(balance.usd, balance.btc, (balance.btc * rate).roundToLong()))
     }
 
     data class MarketOrderRequest(
@@ -91,18 +84,13 @@ class ExchangeController(
     fun postMarketOrder(
         @AuthenticationPrincipal userDetails : ExchangeUserDetails,
         @RequestBody request : MarketOrderRequest,
-    ) : Any {
-        data class Response(
-            val quantity : Long,
-            val  avg_price : Double
-        )
+    ) : PostMarketOrderResponse {
         val orderResult = exchangeService.executeMarketOrder(userDetails.user, request.quantity, request.type)
         orderResult.updatedOrders.forEach {
             callWebhook(it.webhookURL)
         }
-        // TODO webhooks
         println("User: ${userDetails.username}, Request: $request")
-        return Response(orderResult.btc, (orderResult.usd / orderResult.btc).toDouble())
+        return PostMarketOrderResponse(orderResult.btc, (orderResult.usd / orderResult.btc).toDouble())
     }
 
     data class StandingOrderRequest(
@@ -116,9 +104,7 @@ class ExchangeController(
     fun postStandingOrder(
         @AuthenticationPrincipal userDetails : ExchangeUserDetails,
         @RequestBody request : StandingOrderRequest
-    ) : Any {
-        data class Response(val order_id : Long)
-
+    ) : PostStandingOrderResponse {
         println("User: ${userDetails.username}, Request: $request")
 
         val standingOrderResult = exchangeService.createStandingOrder(
@@ -131,7 +117,7 @@ class ExchangeController(
         standingOrderResult.updatedOrders.forEach {
             callWebhook(it.webhookURL)
         }
-        return Response(standingOrderResult.order.id)
+        return PostStandingOrderResponse(standingOrderResult.order.id)
     }
 
     @DeleteMapping(path = ["/standing_order/{id}"])
@@ -151,18 +137,9 @@ class ExchangeController(
     fun getStandingOrder(
         @AuthenticationPrincipal userDetails : ExchangeUserDetails,
         @PathVariable(name ="id") id : Long,
-    ) : ResponseEntity<Any> {
-        data class Response(
-            val type : OrderType,
-            val limit_price : Long,
-            val filled_quantity : Long,
-            val quantity : Long,
-            val avg_price : Long,
-            val state : OrderState
-        )
-
+    ) : ResponseEntity<GetStandingOrderResponse> {
         return exchangeService.findOrderOfUserById(userDetails.user, id)?.let {
-            ResponseEntity.ok(Response(
+            ResponseEntity.ok(GetStandingOrderResponse(
                 it.type,
                 it.limitPrice,
                 it.filledQuantity,
